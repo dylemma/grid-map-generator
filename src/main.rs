@@ -4,12 +4,13 @@ use bevy::{
 };
 use bevy::render::camera::{DepthCalculation, WindowOrigin};
 use bevy::sprite::Anchor;
+use rand::prelude::*;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_startup_system(setup)
-        .add_system(bounce_colors)
+        .add_system(reset_tiles_on_keypress)
         .add_system(sync_tile_colors)
         .run();
 }
@@ -35,20 +36,16 @@ fn setup(
         ..default()
     });
 
-    let red_corner = grid.bottom_left;
-    let green_corner = grid.bottom_left + Vec2::new(grid.width() / 2., grid.height());
-    let blue_corner = grid.bottom_left + Vec2::new(grid.width(), 0.);
-    let max_dist = (grid.width().powi(2) + grid.height().powi(2)).sqrt();
+    let mut rng = thread_rng();
 
     for i in 0..grid.size_in_tiles[0] {
         for j in 0..grid.size_in_tiles[1] {
             let tile = Tile::new(i, j);
             let pos = grid.tile_pos(&tile);
-                //bottom_left + Vec2::new(i as f32, j as f32);
-            let r = 1.0 - pos.distance(red_corner) / max_dist;
-            let g = 1.0 - pos.distance(green_corner) / max_dist;
-            let b = 1.0 - pos.distance(blue_corner) / max_dist;
-            let color = Color::rgb(r, g, b);
+            let tile_on = rng.gen::<bool>();
+            let color =
+                if tile_on { Color::WHITE }
+                else { Color::BLACK };
 
             commands
                 .spawn_bundle(SpriteBundle {
@@ -73,14 +70,14 @@ fn sync_tile_colors(mut query: Query<(&mut Sprite, &TileColor), With<Tile>>) {
     }
 }
 
-fn bounce_colors(time: Res<Time>, mut query: Query<&mut TileColor, With<Tile>>) {
-    let dt = time.delta_seconds() * 0.5;
-    for mut tc in &mut query {
-        let [r, g, b, a] = tc.0.as_rgba_f32();
-        let r2 = (r + dt) % 1.;
-        let g2 = (g + dt) % 1.;
-        let b2 = (b + dt) % 1.;
-        tc.0 = Color::rgba(r2, g2, b2, a);
+fn reset_tiles_on_keypress(keyboard: Res<Input<KeyCode>>, mut tiles: Query<&mut TileColor>) {
+    if keyboard.just_pressed(KeyCode::Return) {
+        let mut rng = thread_rng();
+        for mut tile_color in &mut tiles {
+            tile_color.0 =
+                if rng.gen() { Color::WHITE }
+                else { Color::BLACK };
+        }
     }
 }
 
