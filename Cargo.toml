@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 # https://bevyengine.org/learn/book/getting-started/setup/ recommends "dynamic" feature for dev, but not release
 bevy = { version = "0.8", features = ["dynamic"] }
+noise = "0.7.0"
 rand = "0.8.5"
 
 [profile.dev]
