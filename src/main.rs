@@ -1,6 +1,5 @@
 mod grid;
 
-use std::time::Duration;
 use bevy::{
     prelude::*,
     render::camera::ScalingMode,
@@ -13,21 +12,12 @@ use rand::prelude::*;
 use crate::grid::*;
 
 const GRID_SIZE: [u32; 2] = [50, 50];
-const AUTOMATA_STEP_PERIOD: f32 = 0.1;
-const AUTOMATA_OPEN_THRESHOLD: u32 = 4;
-const AUTOMATA_CLOSE_THRESHOLD: u32 = 4;
-
-const WIGGLE_MAGNITUDE: f32 = 0.5;
-const WIGGLE_FREQUENCY: f32 = 0.25;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugin(GridPlugin::new(GRID_SIZE))
-        .add_plugin(NoisePlugin)
         .add_startup_system(setup)
         .add_system(reset_tiles_on_keypress)
-        .add_system(cellular_automata)
         .add_system(wiggle_tiles)
         .add_system(sync_tile_sprites)
         .run();
@@ -36,8 +26,9 @@ fn main() {
 fn setup(
     mut commands: Commands,
 ) {
-    let mut grid = Grid::new(GRID_SIZE[0], GRID_SIZE[1]);
+    let grid = Grid::new(GRID_SIZE[0], GRID_SIZE[1]);
     let grid_dims = GridDimensions::new(GRID_SIZE);
+    let noise = Noise2::new();
 
     commands.spawn_bundle(Camera2dBundle {
         projection: OrthographicProjection {
@@ -53,15 +44,12 @@ fn setup(
         ..default()
     });
 
-    let mut rng = thread_rng();
-
     for i in 0..grid.width() {
         for j in 0..grid.height() {
             let tile_address = TileAddress(i, j);
-            let tile_state = rng.gen::<TileState>();
             let pos = grid_dims.world_pos_of(&tile_address);
 
-            let tile_entity = commands
+            commands
                 .spawn_bundle(SpriteBundle {
                     sprite: Sprite {
                         custom_size: Some(Vec2::ONE),
@@ -72,14 +60,15 @@ fn setup(
                     ..default()
                 })
                 .insert(tile_address)
-                .insert(tile_state)
+                .insert(compute_tile_state(&noise, &grid_dims, &tile_address))
                 .insert(TileWiggle::new())
                 ;
         }
     }
 
     commands.insert_resource(grid);
-    commands.insert_resource(AutomataTimer(Timer::new(Duration::from_secs_f32(AUTOMATA_STEP_PERIOD), true)));
+    commands.insert_resource(grid_dims);
+    commands.insert_resource(noise);
 }
 
 // Sync changed TileState values back to the Grid and update associated sprite colors
@@ -92,25 +81,39 @@ fn sync_tile_sprites(
         let color = match tile_state {
             TileState::Floor => Color::WHITE,
             TileState::Wall => Color::BLACK,
+            TileState::Elevation(e) => Color::rgb(*e, *e, *e),
         };
         sprite.color = color;
     }
 }
 
-fn reset_tiles_on_keypress(keyboard: Res<Input<KeyCode>>, mut tiles_states: Query<&mut TileState>) {
+fn reset_tiles_on_keypress(keyboard: Res<Input<KeyCode>>, mut noise: ResMut<Noise2>, grid: Res<GridDimensions>, mut tiles_states: Query<(&mut TileState, &TileAddress)>) {
     if keyboard.just_pressed(KeyCode::Return) {
-        let mut rng = thread_rng();
-        for mut state in &mut tiles_states {
-            *state = rng.gen();
+        noise.reseed();
+        for (mut state, address) in &mut tiles_states {
+            *state = compute_tile_state(&noise, &grid, &address);
         }
     }
 }
 
-fn wiggle_tiles(grid: Res<GridDimensions>, time: Res<Time>, noise: Res<NoiseFunctions>, mut tiles: Query<(&mut TileWiggle, &mut Transform, &TileAddress)>) {
+fn compute_tile_state(noise: &Noise2, grid: &GridDimensions, address: &TileAddress) -> TileState {
+    let pos = grid.normalize_from_center(grid.world_pos_of(address));
+    // let pos = grid.world_pos_of(address);
+    let e = pick_elevation(&noise.x, pos);
+    let d = 1.0 - Reshaping::square_bump(pos.x, pos.y); //grid.calc_square_bump(pos);
+    let e2 = (e + d) * 0.5;
+
+    if e2 > 0.5 { TileState::Elevation(e2) }
+    else { TileState::Wall }
+    // TileState::Elevation(e2)
+}
+
+const WIGGLE_MAGNITUDE: f32 = 0.5;
+fn wiggle_tiles(grid: Res<GridDimensions>, time: Res<Time>, noise: Res<Noise2>, mut tiles: Query<(&mut TileWiggle, &mut Transform, &TileAddress)>) {
     for (mut tile_wiggle, mut transform, tile) in &mut tiles {
         tile_wiggle.step(&time);
         let base_pos = grid.world_pos_of(tile);
-        let noise_offset = noise.get_offset_2d(grid.world_pos_of(tile) + tile_wiggle.as_offset()) * WIGGLE_MAGNITUDE;
+        let noise_offset = noise.get_at(grid.world_pos_of(tile) + tile_wiggle.as_offset()) * WIGGLE_MAGNITUDE;
         *transform = Transform::from_translation((base_pos + noise_offset, 0.).into());
     }
 }
@@ -119,16 +122,14 @@ fn wiggle_tiles(grid: Res<GridDimensions>, time: Res<Time>, noise: Res<NoiseFunc
 pub struct TileWiggle {
     dt: f32,
     frequency: f32,
-    noise_root: [f32; 2],
 }
 
 impl TileWiggle {
+    const WIGGLE_FREQUENCY: f32 = 0.25;
     fn new() -> Self {
-        let mut rng = thread_rng();
         TileWiggle {
             dt: 0.,
-            frequency: WIGGLE_FREQUENCY,
-            noise_root: rng.gen(),
+            frequency: Self::WIGGLE_FREQUENCY,
         }
     }
     fn step(&mut self, time: &Time) {
@@ -143,76 +144,72 @@ impl TileWiggle {
     }
 }
 
-struct AutomataTimer(Timer);
+// OpenSimplex seems to have a range of +/- 0.54397714
+// and we want to scale that to +/- 0.5
+const SIMPLEX_SCALAR: f64 = 0.5 / 0.5439777;
 
-fn cellular_automata(
-    time: Res<Time>,
-    grid: Res<Grid>,
-    mut timer: ResMut<AutomataTimer>,
-    mut tiles: Query<(&TileAddress, &mut TileState)>,
-) {
-    if timer.0.tick(time.delta()).just_finished() {
-        for (address, mut state) in &mut tiles {
-            let floor_neighbors = grid.count_neighbors(address, |s| *s == TileState::Floor);
-            let wall_neighbors = grid.count_neighbors(address, |s| *s == TileState::Wall);
-            match *state {
-                TileState::Floor => {
-                    if wall_neighbors > AUTOMATA_CLOSE_THRESHOLD {
-                        *state = TileState::Wall;
-                    }
-                }
-                TileState::Wall => {
-                    if floor_neighbors > AUTOMATA_OPEN_THRESHOLD {
-                        *state = TileState::Floor;
-                    }
-                }
-            }
-        }
-    }
-}
+struct Noise(OpenSimplex);
 
-struct NoisePlugin;
-
-impl Plugin for NoisePlugin {
-    fn build(&self, app: &mut App) {
-        app.insert_resource(NoiseFunctions::new());
-    }
-}
-
-struct NoiseFunctions {
-    x: OpenSimplex,
-    y: OpenSimplex,
-}
-
-impl NoiseFunctions {
+impl Noise {
     fn new() -> Self {
-        let (x_seed, y_seed) = random();
-        NoiseFunctions {
-            x: OpenSimplex::new().set_seed(x_seed),
-            y: OpenSimplex::new().set_seed(y_seed),
+        let seed = random();
+        Noise(OpenSimplex::new().set_seed(seed))
+    }
+    fn reseed(&mut self) {
+        let seed = random();
+        self.0 = self.0.set_seed(seed);
+    }
+    fn get(&self, xy: [f32; 2]) -> f32 {
+        let [x, y] = xy;
+        (self.0.get([(x as f64) * 4.0, (y as f64) * 4.0]) * SIMPLEX_SCALAR) as f32
+    }
+    fn get_at(&self, point: Vec2) -> f32 {
+        self.get(point.to_array())
+    }
+}
+
+struct Noise2 {
+    pub x: Noise,
+    pub y: Noise,
+}
+
+impl Noise2 {
+    fn new() -> Self {
+        Noise2 {
+            x: Noise::new(),
+            y: Noise::new(),
         }
     }
-    fn get_offset_2d(&self, point: Vec2) -> Vec2 {
-        let point_arr = point.as_dvec2().to_array();
+    fn reseed(&mut self) {
+        self.x.reseed();
+        self.y.reseed();
+    }
+    #[allow(dead_code)]
+    fn get(&self, xy: [f32; 2]) -> Vec2 {
         Vec2::new(
-            self.x.get(point_arr) as f32,
-            self.y.get(point_arr) as f32,
+            self.x.get(xy),
+            self.y.get(xy),
+        )
+    }
+    fn get_at(&self, point: Vec2) -> Vec2 {
+        Vec2::new(
+            self.x.get_at(point),
+            self.y.get_at(point),
         )
     }
 }
 
-struct GridPlugin(GridDimensions);
-
-impl GridPlugin {
-    fn new(grid_size: [u32; 2]) -> Self {
-        GridPlugin(GridDimensions::new(grid_size))
-    }
-}
-
-impl Plugin for GridPlugin {
-    fn build(&self, app: &mut App) {
-        app.insert_resource(self.0);
-    }
+fn pick_elevation(noise: &Noise, point: Vec2) -> f32 {
+    let mut e = 0.0;
+    // low-frequency noise as the baseline
+    e += noise.get_at(point);
+    // high-frequency noise for some variation
+    e += 0.25 * noise.get_at(point * 2.0);
+    // normalize magnitude
+    e /= 1.25;
+    // adjust range from [-0.5, 0.5] to [0, 1]
+    e += 0.5;
+    e
 }
 
 #[derive(Copy, Clone)]
@@ -244,5 +241,24 @@ impl GridDimensions {
             tile.0 as f32 * self.tile_size,
             tile.1 as f32 * self.tile_size,
         )
+    }
+
+    // return a new Vec2 which represents the given `point`'s position relative to
+    // the `world_center`, scaled relative to size of the grid, such that for a
+    // `point` inside the grid, the magnitude of the x and y components of the returned
+    // vector will be at most 1.
+    fn normalize_from_center(&self, point: Vec2) -> Vec2 {
+        let Vec2 { x, y } = point;
+        Vec2 {
+            x: 2.0 * (x - self.bottom_left.x) / self.world_width() - 1.0,
+            y: 2.0 * (y - self.bottom_left.y) / self.world_height() - 1.0,
+        }
+    }
+}
+
+struct Reshaping;
+impl Reshaping {
+    fn square_bump(nx: f32, ny: f32) -> f32 {
+        1. - (1. - nx.powi(2)) * (1. - ny.powi(2))
     }
 }
