@@ -1,4 +1,7 @@
-mod grid;
+#![feature(is_some_with)]
+#![feature(step_trait)]
+
+use std::ops::DerefMut;
 
 use bevy::{
     prelude::*,
@@ -9,24 +12,34 @@ use bevy::sprite::Anchor;
 use noise::{NoiseFn, OpenSimplex, Seedable};
 use rand::prelude::*;
 
+use crate::fill::flood_fill;
 use crate::grid::*;
+
+mod grid;
+mod fill;
 
 const GRID_SIZE: [u32; 2] = [50, 50];
 
 fn main() {
+
     App::new()
         .add_plugins(DefaultPlugins)
         .add_startup_system(setup)
         .add_system(reset_tiles_on_keypress)
         .add_system(wiggle_tiles)
         .add_system(sync_tile_sprites)
+
+        .insert_resource(MouseLoc(Vec2::ZERO))
+        .add_system(mouse_pointing)
+        .add_system(mouse_picking)
+
         .run();
 }
 
 fn setup(
     mut commands: Commands,
 ) {
-    let grid = Grid::new(GRID_SIZE[0], GRID_SIZE[1]);
+    let grid = Grid::<TileState>::new(GRID_SIZE[0], GRID_SIZE[1]);
     let grid_dims = GridDimensions::new(GRID_SIZE);
     let noise = Noise2::new();
 
@@ -71,17 +84,78 @@ fn setup(
     commands.insert_resource(noise);
 }
 
+struct MouseLoc(Vec2);
+
+fn mouse_pointing(
+    mut mouse: ResMut<MouseLoc>,
+    mut move_events: EventReader<CursorMoved>,
+) {
+    for event in move_events.iter() {
+        mouse.0 = event.position;
+    }
+}
+
+fn mouse_picking(
+    q_camera: Query<(&Camera, &GlobalTransform)>,
+    mouse: Res<MouseLoc>,
+    button: Res<Input<MouseButton>>,
+    grid: Res<GridDimensions>,
+    mut tiles: ResMut<Grid<TileState>>,
+    mut tile_entities: Query<(&TileAddress, &mut TileState)>,
+) {
+    if button.just_pressed(MouseButton::Left) {
+        let (camera, camera_transform) = q_camera.single();
+        if let Some(mouse_world_pos) = mouse_to_world(camera, camera_transform, mouse.0) {
+            if let Some(TileAddress(x, y)) = world_to_tile(&grid, mouse_world_pos) {
+                let (r, g, b) = random();
+                let fill = TileState::Colored(Color::rgb(r, g, b));
+                flood_fill(
+                    tiles.deref_mut(),
+                    (x, y),
+                    |c1, c2| { *c1 == *c2 },
+                    fill,
+                );
+                for (addr, mut state) in &mut tile_entities {
+                    *state = tiles[addr];
+                }
+            }
+        }
+    }
+}
+
+// https://bevy-cheatbook.github.io/cookbook/cursor2world.html
+fn mouse_to_world(camera: &Camera, camera_transform: &GlobalTransform, mouse_pixel_pos: Vec2) -> Option<Vec2> {
+    let window_size = camera.logical_viewport_size()?;
+    let ndc = (mouse_pixel_pos / window_size) * 2.0 - Vec2::ONE;
+    let ndc_to_world = camera_transform.compute_matrix() * camera.projection_matrix().inverse();
+    let world_pos = ndc_to_world.project_point3(ndc.extend(-1.0));
+    Some(world_pos.truncate())
+}
+
+fn world_to_tile(dims: &GridDimensions, world_pos: Vec2) -> Option<TileAddress> {
+    let rel_pos = ((world_pos - dims.bottom_left) / dims.tile_size).floor();
+    let tile_x = u32::try_from(rel_pos.x as i32).ok()?;
+    let tile_y = u32::try_from(rel_pos.y as i32).ok()?;
+    if tile_x < dims.size_in_tiles[0] && tile_y < dims.size_in_tiles[1] {
+        Some(TileAddress(tile_x, tile_y))
+    } else {
+        None
+    }
+}
+
 // Sync changed TileState values back to the Grid and update associated sprite colors
 fn sync_tile_sprites(
-    mut grid: ResMut<Grid>,
+    mut tile_states: ResMut<Grid<TileState>>,
     mut tile_sprites: Query<(&mut Sprite, &TileAddress, &TileState), Changed<TileState>>,
 ) {
     for (mut sprite, tile_address, tile_state) in &mut tile_sprites {
-        grid[*tile_address].state = *tile_state;
+        tile_states[*tile_address] = *tile_state;
         let color = match tile_state {
             TileState::Floor => Color::WHITE,
             TileState::Wall => Color::BLACK,
+            TileState::Water => Color::rgb(0.0, 0.1, 0.4),
             TileState::Elevation(e) => Color::rgb(*e, *e, *e),
+            TileState::Colored(c) => *c,
         };
         sprite.color = color;
     }
@@ -103,8 +177,9 @@ fn compute_tile_state(noise: &Noise2, grid: &GridDimensions, address: &TileAddre
     let d = 1.0 - Reshaping::square_bump(pos.x, pos.y); //grid.calc_square_bump(pos);
     let e2 = (e + d) * 0.5;
 
-    if e2 > 0.5 { TileState::Elevation(e2) }
-    else { TileState::Wall }
+    // if e2 > 0.5 { TileState::Elevation(e2) }
+    if e2 > 0.5 { TileState::Floor }
+    else { TileState::Water }
     // TileState::Elevation(e2)
 }
 
