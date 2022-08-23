@@ -1,21 +1,18 @@
 use std::borrow::Borrow;
 use std::ops::{Index, IndexMut};
-use std::slice::Iter;
-use bevy::prelude::{Color, Component};
+
+use bevy::prelude::Component;
+
 use crate::fill::Tiles;
+use crate::GridDimensions;
 
 #[derive(Component, Copy, Clone, Debug)]
 pub struct TileAddress(pub u32, pub u32);
 
-#[derive(Component, Copy, Clone, Debug, Default, PartialEq)]
-pub enum TileState {
-    #[default]
-    Floor,
-    #[allow(dead_code)]
-    Wall,
-    Water,
-    Elevation(f32),
-    Colored(Color),
+impl TileAddress {
+    pub fn as_tuple(&self) -> (u32, u32) {
+        (self.0, self.1)
+    }
 }
 
 #[derive(Clone)]
@@ -35,36 +32,33 @@ impl<T: Default + Clone> Grid<T> {
             tiles,
         }
     }
+    pub fn new_from_dims(dims: &GridDimensions) -> Self {
+        let [w, h] = dims.size_in_tiles;
+        Self::new(w, h)
+    }
 }
 
 impl<T> Grid<T> {
     pub fn width(&self) -> u32 { self.width }
+
     pub fn height(&self) -> u32 { self.height }
+
     pub fn tile_at(&self, pos: &TileAddress) -> Option<&T> {
         if pos.0 >= self.width { None } else if pos.1 >= self.height { None } else { Some(&self.tiles[(pos.1 * self.width + pos.0) as usize]) }
     }
+
     pub fn tile_at_mut(&mut self, pos: &TileAddress) -> Option<&mut T> {
         if pos.0 >= self.width { None } else if pos.1 >= self.height { None } else { Some(&mut self.tiles[(pos.1 * self.width + pos.0) as usize]) }
     }
 
-    pub fn neighbors_of(&self, address: TileAddress, nt: NeighborhoodType) -> NeighborsItr {
-        let hood = Neighborhood {
-            max_exclusive: TileAddress(self.width, self.height),
-            center: address,
-        };
-        let offsets = match nt {
-            NeighborhoodType::FourWay => FOUR_WAY_NEIGHBOR_OFFSETS.iter(),
-            NeighborhoodType::EightWay => EIGHT_WAY_NEIGHBOR_OFFSETS.iter(),
-        };
-        NeighborsItr { hood, offsets }
-    }
-
-    #[allow(dead_code)]
-    pub fn count_neighbors<P: Fn(&T) -> bool>(&self, address: TileAddress, predicate: P) -> u32 {
-        self
-            .neighbors_of(address, NeighborhoodType::EightWay)
-            .filter(|n| predicate(&self[n]))
-            .count() as u32
+    pub fn addresses(&self) -> impl Iterator<Item=TileAddress> {
+        let width = self.width();
+        let height = self.height();
+        (0..height).flat_map(move |y| {
+            (0..width).map(move |x| {
+                TileAddress(x, y)
+            })
+        })
     }
 }
 
@@ -95,59 +89,3 @@ impl<T> Tiles<u32> for Grid<T>
         }
     }
 }
-
-struct Neighborhood {
-    center: TileAddress,
-    max_exclusive: TileAddress,
-}
-
-impl Neighborhood {
-    fn check_x(&self, x: u32) -> Option<u32> {
-        if x < self.max_exclusive.0 { Some(x) } else { None }
-    }
-    fn check_y(&self, y: u32) -> Option<u32> {
-        if y < self.max_exclusive.1 { Some(y) } else { None }
-    }
-
-
-    fn rel(&self, dx: i32, dy: i32) -> Option<TileAddress> {
-        let TileAddress(cx, cy) = self.center;
-
-        let dxa = dx.unsigned_abs();
-        let x = self.check_x((
-            if dx < 0 { cx.checked_sub(dxa) } else { cx.checked_add(dxa) }
-        )?)?;
-
-        let dya = dy.unsigned_abs();
-        let y = self.check_y((
-            if dy < 0 { cy.checked_sub(dya) } else { cy.checked_add(dya) }
-        )?)?;
-
-        Some(TileAddress(x, y))
-    }
-}
-
-pub enum NeighborhoodType {
-    FourWay,
-    EightWay,
-}
-
-pub struct NeighborsItr {
-    hood: Neighborhood,
-    offsets: Iter<'static, (i32, i32)>,
-}
-
-impl Iterator for NeighborsItr {
-    type Item = TileAddress;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some((dx, dy)) = self.offsets.next() {
-            self.hood.rel(*dx, *dy).or_else(|| self.next())
-        } else {
-            None
-        }
-    }
-}
-
-const FOUR_WAY_NEIGHBOR_OFFSETS: [(i32, i32); 4] = [(0, 1), (1, 0), (0, -1), (-1, 0)];
-const EIGHT_WAY_NEIGHBOR_OFFSETS: [(i32, i32); 8] = [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)];
