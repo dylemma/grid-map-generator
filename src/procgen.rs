@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use rand::prelude::*;
 
 use crate::{flood_fill, Grid, GridDimensions, Noise, TileAddress};
 use crate::fill::Tiles;
@@ -8,9 +9,12 @@ pub fn generate_island_into<T, F>(dims: &GridDimensions, noise: &Noise, out: &mu
 {
     let mut grid = Grid::<TileGenState>::new_from_dims(dims);
 
+    let shaping_func = SummingGroup::new_random_in(dims);
+        // SummingGroup::new_demo_in(dims);
+
     // init the grid to a simplex-noise island
     for addr in grid.addresses() {
-        let reachability = pick_reachability(noise, dims, &addr);
+        let reachability = pick_reachability(noise, &shaping_func,dims, &addr);
         grid[addr] = reachability.into();
     }
 
@@ -107,10 +111,11 @@ pub enum Reachability {
     Closed,
 }
 
-fn pick_reachability(noise: &Noise, dims: &GridDimensions, address: &TileAddress) -> Reachability {
+fn pick_reachability(noise: &Noise, shaping: &dyn ShapingFunction, dims: &GridDimensions, address: &TileAddress) -> Reachability {
     let pos = dims.normalize_from_center(dims.world_pos_of(address));
     let e = pick_elevation(&noise, pos);
-    let d = square_bump(pos.x, pos.y);
+    let world_pos = dims.world_pos_of(address);
+    let d = shaping.compute_at(world_pos) * 0.6 + 0.2;
     let e2 = (e + d) * 0.5;
 
     if e2 > 0.5 { Reachability::Open } else { Reachability::Closed }
@@ -131,10 +136,77 @@ fn pick_elevation(noise: &Noise, point: Vec2) -> f32 {
     e
 }
 
-// compute a Z scalar based on X and Y positions relative to a center.
-// `nx` and `ny` are assumed to be in the range (-1.0, 1.0), for an
-// expected output of (0.0, 1.0). Output is 1 at the center, approaching
-// 0 as `|nx|` and `|ny|` approach 1.
-fn square_bump(nx: f32, ny: f32) -> f32 {
-    (1. - nx.powi(2)) * (1. - ny.powi(2))
+trait ShapingFunction {
+    fn compute_at(&self, pos: Vec2) -> f32;
+}
+
+struct SummingGroup(Vec<Box<dyn ShapingFunction>>);
+
+impl SummingGroup {
+    fn new_random_in(dims: &GridDimensions) -> Self {
+        let points: Vec<Vec2> =  (0..5).map(|_| {
+            dims.bottom_left + Vec2::new(dims.world_width() * random::<f32>(), dims.world_height() * random::<f32>())
+        }).collect();
+
+        let bumps = points.iter().map(|center| {
+            boxed(CircleBump {
+                center: center.clone(),
+                radius: dims.world_width() * (0.15 + random::<f32>() * 0.15),
+            })
+        });
+
+        let bridges = (0..3).map(|_| {
+            let endpoints: Vec<Vec2> = points.choose_multiple(&mut thread_rng(), 2).cloned().collect();
+            boxed(BridgeBump {
+                start: endpoints[0],
+                end: endpoints[1],
+                thickness: dims.tile_size * 3.0,
+            })
+        });
+
+        SummingGroup(bumps.chain(bridges).collect())
+    }
+}
+
+fn boxed<F: ShapingFunction + 'static>(f: F) -> Box<dyn ShapingFunction> {
+    Box::new(f)
+}
+
+impl ShapingFunction for SummingGroup {
+    fn compute_at(&self, pos: Vec2) -> f32 {
+        self.0.iter().map(|f| f.compute_at(pos)).sum::<f32>().min(1.0)
+    }
+}
+
+struct CircleBump {
+    center: Vec2,
+    radius: f32,
+}
+impl ShapingFunction for CircleBump {
+    fn compute_at(&self, pos: Vec2) -> f32 {
+        let radial_dist = self.center.distance(pos) / self.radius;
+        let one_at_center = 1.0 - radial_dist.min(1.0);
+        one_at_center.powf(0.333)
+    }
+}
+
+struct BridgeBump {
+    start: Vec2,
+    end: Vec2,
+    thickness: f32,
+}
+impl ShapingFunction for  BridgeBump {
+    fn compute_at(&self, pos: Vec2) -> f32 {
+        let start_to_pos = pos - self.start;
+        let bridge_vec = self.end - self.start;
+        let t = start_to_pos.dot(bridge_vec) / bridge_vec.length_squared();
+        let projection =
+            if t < 0.0 { self.start }
+            else if t > 1.0 { self.end }
+            else { self.start + t * bridge_vec };
+        let dist_ratio = pos.distance(projection) / self.thickness;
+
+        if dist_ratio > 1.0 { 0.0 }
+        else { (1.0 - dist_ratio).powf(0.5) * 0.75 }
+    }
 }
