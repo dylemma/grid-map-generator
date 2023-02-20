@@ -160,7 +160,7 @@ impl<'g, G, P, I, T> FloodTest<I> for GridRowFloodTest<'g, G, P, I>
           I: Copy,
 {
     fn inside(&self, x: I) -> bool {
-        self.grid.get_tile(x, self.y).is_some_and(|t| (self.tile_test)(*t))
+        self.grid.get_tile(x, self.y).is_some_and(|t| (self.tile_test)(t))
     }
 }
 

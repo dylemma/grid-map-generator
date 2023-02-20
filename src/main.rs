@@ -1,4 +1,4 @@
-#![feature(is_some_with)]
+#![feature(is_some_and)]
 #![feature(step_trait)]
 
 use bevy::{
