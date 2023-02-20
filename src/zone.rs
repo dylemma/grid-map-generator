@@ -19,6 +19,7 @@ impl Plugin for ZonePlugin {
     }
 }
 
+#[derive(Resource)]
 struct ZoneNoise(Noise);
 
 pub enum ZoneCommand {
@@ -75,7 +76,7 @@ impl From<Reachability> for TileState {
 }
 
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Resource)]
 pub struct GridDimensions {
     pub size_in_tiles: [u32; 2],
     pub tile_size: f32,

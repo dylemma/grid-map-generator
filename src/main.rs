@@ -5,7 +5,7 @@ use bevy::{
     prelude::*,
     render::camera::ScalingMode,
 };
-use bevy::render::camera::{DepthCalculation, WindowOrigin};
+use bevy::render::camera::WindowOrigin;
 use bevy::sprite::Anchor;
 
 use crate::fill::flood_fill;
@@ -39,10 +39,9 @@ fn setup_camera(
     mut commands: Commands,
     dimensions: Res<GridDimensions>,
 ) {
-    commands.spawn_bundle(Camera2dBundle {
+    commands.spawn(Camera2dBundle {
         projection: OrthographicProjection {
             window_origin: WindowOrigin::Center,
-            depth_calculation: DepthCalculation::ZDifference,
             scaling_mode: ScalingMode::Auto {
                 min_width: dimensions.world_width(),
                 min_height: dimensions.world_height(),
@@ -66,7 +65,7 @@ fn sync_zone_tile_sprites(
             let tile_state = zone[tile_address];
 
             commands
-                .spawn_bundle(SpriteBundle {
+                .spawn(SpriteBundle {
                     sprite: Sprite {
                         custom_size: Some(Vec2::ONE),
                         anchor: Anchor::BottomLeft,

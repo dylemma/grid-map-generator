@@ -51,6 +51,7 @@ impl TileWiggle {
     }
 }
 
+#[derive(Resource)]
 struct WiggleNoise(Noise, Noise);
 
 impl WiggleNoise {

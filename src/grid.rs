@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 use std::ops::{Index, IndexMut};
 
-use bevy::prelude::Component;
+use bevy::prelude::{Component, Resource};
 
 use crate::fill::Tiles;
 use crate::GridDimensions;
@@ -15,7 +15,7 @@ impl TileAddress {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Resource)]
 pub struct Grid<T> {
     width: u32,
     height: u32,

@@ -14,6 +14,7 @@ impl Plugin for GameInputPlugin {
     }
 }
 
+#[derive(Resource)]
 struct MouseLoc(Vec2);
 
 fn mouse_pointing(
