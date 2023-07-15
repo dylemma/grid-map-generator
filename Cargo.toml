@@ -9,6 +9,7 @@ edition = "2021"
 # https://bevyengine.org/learn/book/getting-started/setup/ recommends "dynamic" feature for dev, but not release
 bevy = { version = "0.9.1", features = ["dynamic"] }
 noise_lib = { version = "0.7.0", package = "noise" }
+parry2d = "0.13.5"
 rand = "0.8.5"
 
 [profile.dev]

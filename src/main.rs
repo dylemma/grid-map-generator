@@ -6,12 +6,13 @@ use bevy::{
 };
 use bevy::render::camera::WindowOrigin;
 use bevy::sprite::Anchor;
-use crate::border::{Border, collect_borders};
 
+use crate::border::{Border, collect_borders};
 use crate::fill::flood_fill;
 use crate::grid::*;
 use crate::input::GameInputPlugin;
 use crate::noise::Noise;
+use crate::raycast_world::{Obstacle, ObstacleRef, Obstacles};
 use crate::wiggle::{TileWiggle, TileWigglePlugin};
 use crate::zone::*;
 
@@ -22,6 +23,7 @@ mod grid;
 mod input;
 mod noise;
 mod procgen;
+mod raycast_world;
 mod wiggle;
 mod zone;
 
@@ -58,8 +60,9 @@ fn setup_camera(
 fn sync_zone_tile_sprites(
     dimensions: Res<GridDimensions>,
     zone: Res<Grid<TileState>>,
+    mut obstacles: ResMut<Obstacles>,
     mut sprites: Query<(&mut Sprite, &TileAddress)>,
-    border_entities: Query<Entity, With<Border>>,
+    border_entities: Query<Entity, (With<Border>, With<ObstacleRef>)>,
     mut commands: Commands,
 ) {
     if zone.is_added() {
@@ -93,39 +96,38 @@ fn sync_zone_tile_sprites(
         for entity in &border_entities {
             commands.entity(entity).despawn();
         }
+        // TODO: once I add more kinds of obstacles that aren't border walls,
+        //       this struct is going to need an efficient way to remove individual items.
+        obstacles.remove_all();
+
         collect_borders(
             &zone,
             &|tile: &TileState| *tile == TileState::Floor,
             &mut |border: Border| {
-                // println!("Got border @ {:?}", border);
-                let tile_corner = dimensions.world_pos_of(border.pos());
-                let border_radius = dimensions.tile_size * 0.1;
-                let border_drop = Vec2::splat(-border_radius);
-                let border_radius_x2 = dimensions.tile_size * 0.2;
-                let (border_corner, size) = if border.is_vertical() {
-                    let border_corner = tile_corner + border_drop;
-                    let size = Vec2::new(border_radius_x2, dimensions.tile_size + border_radius_x2);
-                    (border_corner, size)
-                } else {
-                    let border_corner = tile_corner + border_drop/* + Vec2::new(0., dimensions.tile_size)*/;
-                    let size = Vec2::new(dimensions.tile_size + border_radius_x2, border_radius_x2);
-                    (border_corner, size)
-                };
+                let obs = Obstacle::border_wall(border, &dimensions);
+                let aabb = obs.aabb();
+                let obs_ref = obstacles.add(obs);
+                let corner = aabb.mins;
+                let size: [f32; 2] = aabb.extents().into();
+
                 commands
                     .spawn(SpriteBundle {
                         sprite: Sprite {
                             anchor: Anchor::BottomLeft,
                             color: Color::CYAN,
-                            custom_size: Some(size),
+                            custom_size: Some(size.into()),
                             ..default()
                         },
-                        transform: Transform::from_translation((border_corner, 0.).into()),
+                        transform: Transform::from_translation((corner.x, corner.y, 0.).into()),
                         ..default()
                     })
                     .insert(border)
+                    .insert(obs_ref)
                 ;
             }
-        )
+        );
+        obstacles.refit();
+        obstacles.rebalance();
     }
 }
 

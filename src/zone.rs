@@ -1,8 +1,11 @@
 use std::ops::DerefMut;
+
 use bevy::prelude::*;
+
 use crate::grid::*;
 use crate::noise::Noise;
 use crate::procgen::*;
+use crate::raycast_world::Obstacles;
 
 pub struct ZonePlugin(pub u32, pub u32);
 
@@ -12,6 +15,7 @@ impl Plugin for ZonePlugin {
             .insert_resource(ZoneNoise(Noise::new()))
             .insert_resource(Grid::<TileState>::new(self.0, self.1))
             .insert_resource(GridDimensions::new([self.0, self.1]))
+            .insert_resource(Obstacles::default())
             .add_event::<ZoneCommand>()
             .add_startup_system(startup_init_zone)
             .add_system(handle_zone_commands)

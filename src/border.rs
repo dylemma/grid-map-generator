@@ -3,7 +3,7 @@ use bevy::prelude::Component;
 use crate::cardinal::Cardinal;
 use crate::grid::{Grid, TileAddress};
 
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Copy, Clone)]
 pub struct Border {
     pos: TileAddress,
     is_vertical: bool,
