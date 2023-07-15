@@ -15,7 +15,7 @@ impl Plugin for GameInputPlugin {
 }
 
 #[derive(Resource)]
-struct MouseLoc(Vec2);
+pub struct MouseLoc(pub Vec2);
 
 fn mouse_pointing(
     mut mouse: ResMut<MouseLoc>,
@@ -43,7 +43,7 @@ fn mouse_picking(
 }
 
 // https://bevy-cheatbook.github.io/cookbook/cursor2world.html
-fn mouse_to_world(camera: &Camera, camera_transform: &GlobalTransform, mouse_pixel_pos: Vec2) -> Option<Vec2> {
+pub fn mouse_to_world(camera: &Camera, camera_transform: &GlobalTransform, mouse_pixel_pos: Vec2) -> Option<Vec2> {
     let window_size = camera.logical_viewport_size()?;
     let ndc = (mouse_pixel_pos / window_size) * 2.0 - Vec2::ONE;
     let ndc_to_world = camera_transform.compute_matrix() * camera.projection_matrix().inverse();

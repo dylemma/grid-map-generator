@@ -6,6 +6,8 @@ use bevy::utils::default;
 use parry2d::bounding_volume::Aabb;
 use parry2d::math::{Isometry, Real, Vector};
 use parry2d::partitioning::{IndexedData, Qbvh, QbvhUpdateWorkspace};
+use parry2d::query::Ray;
+use parry2d::query::visitors::RayIntersectionsVisitor;
 use parry2d::shape::{Cuboid, Shape};
 
 use crate::border::Border;
@@ -112,5 +114,31 @@ impl Obstacles {
 
     pub fn rebalance(&mut self) {
         self.qbvh.rebalance(0., &mut self.workspace);
+    }
+
+    pub fn get_toi(&self, ray: &Ray, max_toi: Real) -> Option<Real> {
+        let mut closest_toi = None;
+        let mut callback = |index: &ObstacleRef| {
+            let obstacle = &self.obstacles[index.0];
+            if let Some(toi) = obstacle.shape.cast_ray(
+                &obstacle.isometry,
+                &ray,
+                max_toi,
+                true,
+            ) {
+                closest_toi = match closest_toi {
+                    None => Some(toi),
+                    Some(old_toi) => Some(old_toi.min(toi))
+                };
+            }
+            true
+        };
+        let mut visitor = RayIntersectionsVisitor::new(
+            &ray,
+            max_toi,
+            &mut callback
+        );
+        self.qbvh.traverse_depth_first(&mut visitor);
+        closest_toi
     }
 }
