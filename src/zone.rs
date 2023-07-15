@@ -50,7 +50,7 @@ fn handle_zone_commands(
     }
 }
 
-#[derive(Component, Copy, Clone, Debug, Default, PartialEq)]
+#[derive(Component, Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub enum TileState {
     #[default]
     Floor,
