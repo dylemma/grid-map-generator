@@ -20,7 +20,7 @@ pub fn flood_fill<G, I, P, T>(
           I: Step + PartialOrd + Copy + Debug,
           P: Fn(&T, &T) -> bool,
 {
-    /* This is an implementation of the "combined-sacn-and-fill" algorithm described on Wikipedia:
+    /* This is an implementation of the "combined-scan-and-fill" algorithm described on Wikipedia:
      *  - Get start color from the starting tile
      *  - Expand left and right from the starting point to get the initial row
      *  - Add scan seeds for the Spans above and below the initial row
