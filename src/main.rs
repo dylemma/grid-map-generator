@@ -10,7 +10,7 @@ use parry2d::math::{Point, Vector};
 use crate::border::{Border, collect_borders};
 use crate::fill::flood_fill;
 use crate::grid::*;
-use crate::input::{GameInputPlugin, MouseWorldPos};
+use crate::input::{GameInputPlugin, PlayerCursor};
 use crate::noise::Noise;
 use crate::raycast_world::{Obstacle, ObstacleRef, Obstacles};
 use crate::wiggle::{TileWiggle, TileWigglePlugin};
@@ -167,7 +167,7 @@ struct LaserBeam;
 
 fn laser_pointer_system(
     mut commands: Commands,
-    mouse_world_pos: Res<MouseWorldPos>,
+    player_cursor: Res<PlayerCursor>,
     mut pointer: ResMut<LaserPointer>,
     button: Res<Input<MouseButton>>,
     laser_origin: Query<Entity, With<LaserOrigin>>,
@@ -179,13 +179,13 @@ fn laser_pointer_system(
 
     // update `pressed_at` when the mouse becomes pressed
     if button.just_pressed(MouseButton::Left) {
-        pointer.pressed_at = mouse_world_pos.0;
+        pointer.pressed_at = Some(player_cursor.world_pos);
     }
 
     // update `held_at` when the mouse remains pressed
     if button.pressed(MouseButton::Left) {
         // update the 'held' point
-        pointer.held_at = mouse_world_pos.0;
+        pointer.held_at = Some(player_cursor.world_pos);
     } else {
         // turn off the laser if the mouse is released
         pointer.pressed_at = None;

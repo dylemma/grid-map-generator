@@ -8,53 +8,64 @@ pub struct GameInputPlugin;
 impl Plugin for GameInputPlugin {
     fn build(&self, app: &mut App) {
         app
-            .insert_resource(MouseLoc(Vec2::ZERO))
-            .insert_resource(MouseWorldPos(None))
-            .add_systems(Update, mouse_pointing)
+            .insert_resource(PlayerCursor::default())
+            .add_systems(PreUpdate, update_player_cursor)
+            .add_systems(Update, mess_with_camera)
             .add_systems(Update, mouse_picking)
-            .add_systems(PreUpdate, world_pos_tracking)
         ;
     }
 }
 
-#[derive(Resource)]
-pub struct MouseLoc(pub Vec2);
+#[derive(Resource, Default, Debug)]
+pub struct PlayerCursor {
+    pub screen_pos: Vec2,
+    pub world_pos: Vec2,
+}
 
-fn mouse_pointing(
-    mut mouse: ResMut<MouseLoc>,
+fn update_player_cursor(
+    camera_q: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     mut move_events: EventReader<CursorMoved>,
+    mut cursor: ResMut<PlayerCursor>,
 ) {
     for event in move_events.iter() {
-        mouse.0 = event.position;
+        cursor.screen_pos = event.position;
+    }
+
+    let (camera, camera_transform) = camera_q.single();
+    if let Some(world_pos) = camera.viewport_to_world_2d(camera_transform, cursor.screen_pos) {
+        if !cursor.world_pos.abs_diff_eq(world_pos, 0.001) {
+            cursor.world_pos = world_pos;
+        }
     }
 }
 
-fn mouse_picking(
-    mouse_world_pos: Res<MouseWorldPos>,
-    button: Res<Input<MouseButton>>,
-    dimensions: Res<GridDimensions>,
+fn mess_with_camera(
+    keys: Res<Input<KeyCode>>,
+    mut camera_q: Query<&mut OrthographicProjection, (With<Camera>, With<MainCamera>)>,
+    mut toggle: Local<bool>,
 ) {
-    if button.just_pressed(MouseButton::Left) {
-        if let Some(mwp) = &mouse_world_pos.0 {
-            if let Some(TileAddress(x, y)) = dimensions.position_to_address(*mwp) {
-                println!("clicked at {}, {}", x, y);
+    if keys.just_pressed(KeyCode::Space) {
+        let b = !(*toggle);
+        *toggle = b;
+        for mut projection in &mut camera_q {
+            if b {
+                projection.scale *= 2.0;
+            } else {
+                projection.scale *= 0.5;
             }
         }
     }
 }
 
-#[derive(Resource)]
-pub struct MouseWorldPos(pub Option<Vec2>);
-
-fn world_pos_tracking(
-    windows: Query<&Window, With<PrimaryWindow>>,
-    camera_q: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    mut mwp: ResMut<MouseWorldPos>,
+fn mouse_picking(
+    cursor: Res<PlayerCursor>,
+    button: Res<Input<MouseButton>>,
+    dimensions: Res<GridDimensions>,
 ) {
-    let (camera, camera_transform) = camera_q.single();
-    let window = windows.single();
-
-    mwp.0 = window.cursor_position()
-        .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor))
-        .map(|ray| ray.origin.truncate());
+    if button.just_pressed(MouseButton::Left) {
+        if let Some(TileAddress(x, y)) = dimensions.position_to_address(cursor.world_pos) {
+            println!("clicked at {}, {}", x, y);
+        }
+    }
 }
+
