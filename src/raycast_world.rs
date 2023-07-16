@@ -5,6 +5,7 @@ use bevy::prelude::{Component, Resource};
 use bevy::utils::default;
 use parry2d::bounding_volume::Aabb;
 use parry2d::math::{Isometry, Real, Vector};
+use parry2d::na::Point;
 use parry2d::partitioning::{IndexedData, Qbvh, QbvhUpdateWorkspace};
 use parry2d::query::Ray;
 use parry2d::query::visitors::RayIntersectionsVisitor;
@@ -113,7 +114,11 @@ impl Obstacles {
         self.qbvh.rebalance(0., &mut self.workspace);
     }
 
-    pub fn get_toi(&self, ray: &Ray, max_toi: Real) -> Option<Real> {
+    pub fn find_ray_impact(&self, start: Vec2, direction: Vec2, max_toi: f32) -> Option<f32> {
+        let ray = Ray::new(
+            [start.x, start.y].into(),
+            Vector::new(direction.x, direction.y)
+        );
         let mut closest_toi = None;
         let mut callback = |index: &ObstacleRef| {
             let obstacle = &self.obstacles[index.0];

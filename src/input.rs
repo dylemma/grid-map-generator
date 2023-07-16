@@ -63,8 +63,8 @@ fn mouse_picking(
     dimensions: Res<GridDimensions>,
 ) {
     if button.just_pressed(MouseButton::Left) {
-        if let Some(TileAddress(x, y)) = dimensions.position_to_address(cursor.world_pos) {
-            println!("clicked at {}, {}", x, y);
+        if let Some(addr) = dimensions.position_to_address(cursor.world_pos) {
+            println!("clicked at {:?}", addr);
         }
     }
 }

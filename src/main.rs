@@ -11,6 +11,7 @@ use crate::border::{Border, collect_borders};
 use crate::fill::flood_fill;
 use crate::grid::*;
 use crate::input::{GameInputPlugin, PlayerCursor};
+use crate::laser::{LaserBundle, LasersPlugin};
 use crate::noise::Noise;
 use crate::raycast_world::{Obstacle, ObstacleRef, Obstacles};
 use crate::wiggle::{TileWiggle, TileWigglePlugin};
@@ -21,6 +22,7 @@ mod cardinal;
 mod fill;
 mod grid;
 mod input;
+mod laser;
 mod noise;
 mod procgen;
 mod raycast_world;
@@ -37,11 +39,13 @@ fn main() {
         .add_systems(Update, reset_tiles_on_keypress)
         .add_systems(Update, sync_zone_tile_sprites)
 
-        .insert_resource(LaserPointer::default())
-        .add_systems(Update, laser_pointer_system)
-
+        .add_plugins(LasersPlugin)
+        .add_systems(Startup, setup_player_laser)
         .run();
 }
+
+#[derive(Component)]
+struct PlayerControlled;
 
 #[derive(Component)]
 struct MainCamera;
@@ -147,143 +151,10 @@ fn reset_tiles_on_keypress(
     }
 }
 
-// ---- Laser Pointer ----
-
-#[derive(Resource, Default)]
-struct LaserPointer {
-    pressed_at: Option<Vec2>,
-    held_at: Option<Vec2>,
-    hit_at: Option<Vec2>,
-}
-
-#[derive(Component)]
-struct LaserOrigin;
-
-#[derive(Component)]
-struct LaserEnd;
-
-#[derive(Component)]
-struct LaserBeam;
-
-fn laser_pointer_system(
+fn setup_player_laser(
     mut commands: Commands,
-    player_cursor: Res<PlayerCursor>,
-    mut pointer: ResMut<LaserPointer>,
-    button: Res<Input<MouseButton>>,
-    laser_origin: Query<Entity, With<LaserOrigin>>,
-    mut laser_end: Query<(Entity, &mut Transform), With<LaserEnd>>,
-    mut laser_beam: Query<(Entity, &LaserBeam, &mut Transform), Without<LaserEnd>>,
-    obstacles: Res<Obstacles>,
 ) {
-    let prev_held_loc = pointer.held_at;
-
-    // update `pressed_at` when the mouse becomes pressed
-    if button.just_pressed(MouseButton::Left) {
-        pointer.pressed_at = Some(player_cursor.world_pos);
-    }
-
-    // update `held_at` when the mouse remains pressed
-    if button.pressed(MouseButton::Left) {
-        // update the 'held' point
-        pointer.held_at = Some(player_cursor.world_pos);
-    } else {
-        // turn off the laser if the mouse is released
-        pointer.pressed_at = None;
-        pointer.held_at = None;
-    }
-
-    // update entities based on laser state
-    let laser_needs_update = match (prev_held_loc, pointer.held_at) {
-        (None, Some(new_held)) => {
-            println!("Laser ON");
-            // laser just turned on; spawn sprites!
-            commands.spawn(SpriteBundle {
-                sprite: Sprite {
-                    anchor: Anchor::Center,
-                    color: Color::RED,
-                    custom_size: Some(Vec2::splat(0.5)),
-                    ..default()
-                },
-                transform: Transform::from_translation((new_held, 0.).into()),
-                ..default()
-            }).insert(LaserOrigin);
-
-            commands.spawn(SpriteBundle {
-                sprite: Sprite {
-                    anchor: Anchor::Center,
-                    color: Color::ORANGE_RED,
-                    custom_size: Some(Vec2::splat(0.5)),
-                    ..default()
-                },
-                transform: Transform::from_translation((new_held, 0.).into()),
-                ..default()
-            }).insert(LaserEnd);
-
-            commands.spawn(SpriteBundle {
-                sprite: Sprite {
-                    anchor: Anchor::CenterLeft,
-                    color: Color::ORANGE,
-                    custom_size: Some(Vec2::new(1.0, 0.25)),
-                    ..default()
-                },
-                ..default()
-            }).insert(LaserBeam);
-
-            true
-        },
-        (Some(_), None) => {
-            // laser just turned off; despawn sprites
-            println!("Laser OFF");
-            for entity in &laser_origin {
-                commands.entity(entity).despawn();
-            }
-            for (entity, _) in &laser_end {
-                commands.entity(entity).despawn();
-            }
-            for (entity, _, _) in &laser_beam {
-                commands.entity(entity).despawn();
-            }
-
-            false
-        },
-        (None, None) => {
-            // laser stayed off; do nothing
-            false
-        },
-        (Some(prev_pos), Some(new_pos)) => {
-            // laser remained on; see if it moved
-            !new_pos.abs_diff_eq(prev_pos, 0.001)
-        },
-    };
-
-    if laser_needs_update {
-        if let Some(origin_pos) = pointer.pressed_at {
-            if let Some(target_pos) = pointer.held_at {
-                let direction = (target_pos - origin_pos).normalize();
-                let translation = (origin_pos, 0.).into();
-                let rotation = Quat::from_rotation_arc_2d(Vec2::new(1., 0.), direction);
-                let parry_ray = parry2d::query::Ray::new(
-                    Point::new(origin_pos.x, origin_pos.y),
-                    Vector::new(direction.x, direction.y),
-                );
-                let toi = obstacles.get_toi(&parry_ray, 100.0);
-                let laser_scale = toi.unwrap_or(100.0f32);
-                for (_, _, mut t) in &mut laser_beam {
-                    t.translation = translation;
-                    t.rotation = rotation;
-                    t.scale = (laser_scale, 1., 1.).into()
-                }
-
-                pointer.hit_at = toi.map(|t| origin_pos + (direction * t));
-            }
-        }
-    }
-
-    if let Some(origin_pos) = pointer.pressed_at {
-        let hit_pos = pointer.hit_at.unwrap_or(origin_pos);
-        for (_, mut transform) in &mut laser_end {
-            transform.translation = (hit_pos, 0.).into();
-        }
-
-    }
+    commands
+        .spawn(LaserBundle::default())
+        .insert(PlayerControlled);
 }
