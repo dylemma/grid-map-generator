@@ -87,9 +87,6 @@ impl IndexMut<ObstacleRef> for Obstacles {
 }
 
 impl Obstacles {
-    fn new() -> Self {
-        default()
-    }
 
     pub fn remove_all(&mut self) {
         for index in 0..self.obstacles.len() {

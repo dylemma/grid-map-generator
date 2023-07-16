@@ -1,6 +1,7 @@
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 
-use crate::{GridDimensions, TileAddress};
+use crate::{GridDimensions, MainCamera, TileAddress};
 
 pub struct GameInputPlugin;
 
@@ -8,8 +9,10 @@ impl Plugin for GameInputPlugin {
     fn build(&self, app: &mut App) {
         app
             .insert_resource(MouseLoc(Vec2::ZERO))
-            .add_system(mouse_pointing)
-            .add_system(mouse_picking)
+            .insert_resource(MouseWorldPos(None))
+            .add_systems(Update, mouse_pointing)
+            .add_systems(Update, mouse_picking)
+            .add_systems(PreUpdate, world_pos_tracking)
         ;
     }
 }
@@ -27,26 +30,31 @@ fn mouse_pointing(
 }
 
 fn mouse_picking(
-    q_camera: Query<(&Camera, &GlobalTransform)>,
-    mouse: Res<MouseLoc>,
+    mouse_world_pos: Res<MouseWorldPos>,
     button: Res<Input<MouseButton>>,
     dimensions: Res<GridDimensions>,
 ) {
     if button.just_pressed(MouseButton::Left) {
-        let (camera, camera_transform) = q_camera.single();
-        if let Some(mouse_world_pos) = mouse_to_world(camera, camera_transform, mouse.0) {
-            if let Some(TileAddress(x, y)) = dimensions.position_to_address(mouse_world_pos) {
+        if let Some(mwp) = &mouse_world_pos.0 {
+            if let Some(TileAddress(x, y)) = dimensions.position_to_address(*mwp) {
                 println!("clicked at {}, {}", x, y);
             }
         }
     }
 }
 
-// https://bevy-cheatbook.github.io/cookbook/cursor2world.html
-pub fn mouse_to_world(camera: &Camera, camera_transform: &GlobalTransform, mouse_pixel_pos: Vec2) -> Option<Vec2> {
-    let window_size = camera.logical_viewport_size()?;
-    let ndc = (mouse_pixel_pos / window_size) * 2.0 - Vec2::ONE;
-    let ndc_to_world = camera_transform.compute_matrix() * camera.projection_matrix().inverse();
-    let world_pos = ndc_to_world.project_point3(ndc.extend(-1.0));
-    Some(world_pos.truncate())
+#[derive(Resource)]
+pub struct MouseWorldPos(pub Option<Vec2>);
+
+fn world_pos_tracking(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    camera_q: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    mut mwp: ResMut<MouseWorldPos>,
+) {
+    let (camera, camera_transform) = camera_q.single();
+    let window = windows.single();
+
+    mwp.0 = window.cursor_position()
+        .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor))
+        .map(|ray| ray.origin.truncate());
 }

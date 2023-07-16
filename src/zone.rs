@@ -17,8 +17,8 @@ impl Plugin for ZonePlugin {
             .insert_resource(GridDimensions::new([self.0, self.1]))
             .insert_resource(Obstacles::default())
             .add_event::<ZoneCommand>()
-            .add_startup_system(startup_init_zone)
-            .add_system(handle_zone_commands)
+            .add_systems(Startup, startup_init_zone)
+            .add_systems(Update, handle_zone_commands)
         ;
     }
 }
@@ -26,6 +26,7 @@ impl Plugin for ZonePlugin {
 #[derive(Resource)]
 struct ZoneNoise(Noise);
 
+#[derive(Event)]
 pub enum ZoneCommand {
     Regenerate,
 }

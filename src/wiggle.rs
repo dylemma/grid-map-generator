@@ -9,7 +9,7 @@ impl Plugin for TileWigglePlugin {
     fn build(&self, app: &mut App) {
         app
             .insert_resource(WiggleNoise::new())
-            .add_system(wiggle_tiles)
+            .add_systems(Update, wiggle_tiles)
         ;
     }
 }

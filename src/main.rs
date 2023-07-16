@@ -4,14 +4,13 @@ use bevy::{
     prelude::*,
     render::camera::ScalingMode,
 };
-use bevy::render::camera::WindowOrigin;
 use bevy::sprite::Anchor;
 use parry2d::math::{Point, Vector};
 
 use crate::border::{Border, collect_borders};
 use crate::fill::flood_fill;
 use crate::grid::*;
-use crate::input::{GameInputPlugin, mouse_to_world, MouseLoc};
+use crate::input::{GameInputPlugin, MouseWorldPos};
 use crate::noise::Noise;
 use crate::raycast_world::{Obstacle, ObstacleRef, Obstacles};
 use crate::wiggle::{TileWiggle, TileWigglePlugin};
@@ -31,18 +30,21 @@ mod zone;
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugin(GameInputPlugin)
-        .add_plugin(ZonePlugin(50, 50))
+        .add_plugins(GameInputPlugin)
+        .add_plugins(ZonePlugin(50, 50))
         // .add_plugin(TileWigglePlugin)
-        .add_startup_system(setup_camera)
-        .add_system(reset_tiles_on_keypress)
-        .add_system(sync_zone_tile_sprites)
+        .add_systems(Startup, setup_camera)
+        .add_systems(Update, reset_tiles_on_keypress)
+        .add_systems(Update, sync_zone_tile_sprites)
 
         .insert_resource(LaserPointer::default())
-        .add_system(laser_pointer_system)
+        .add_systems(Update, laser_pointer_system)
 
         .run();
 }
+
+#[derive(Component)]
+struct MainCamera;
 
 fn setup_camera(
     mut commands: Commands,
@@ -50,16 +52,16 @@ fn setup_camera(
 ) {
     commands.spawn(Camera2dBundle {
         projection: OrthographicProjection {
-            window_origin: WindowOrigin::Center,
-            scaling_mode: ScalingMode::Auto {
+            viewport_origin: Vec2::splat(0.5), //WindowOrigin::Center,
+            scaling_mode: ScalingMode::AutoMin {
                 min_width: dimensions.world_width(),
                 min_height: dimensions.world_height(),
             },
             ..default()
         },
-        transform: Transform::from_translation((dimensions.world_center(), 0.).into()),
+        transform: Transform::from_translation((dimensions.world_center(), 999.9).into()).with_scale(Vec3::new(1., -1., 1.)),
         ..default()
-    });
+    }).insert(MainCamera);
 }
 
 fn sync_zone_tile_sprites(
@@ -165,8 +167,7 @@ struct LaserBeam;
 
 fn laser_pointer_system(
     mut commands: Commands,
-    q_camera: Query<(&Camera, &GlobalTransform)>,
-    mouse: Res<MouseLoc>,
+    mouse_world_pos: Res<MouseWorldPos>,
     mut pointer: ResMut<LaserPointer>,
     button: Res<Input<MouseButton>>,
     laser_origin: Query<Entity, With<LaserOrigin>>,
@@ -178,17 +179,13 @@ fn laser_pointer_system(
 
     // update `pressed_at` when the mouse becomes pressed
     if button.just_pressed(MouseButton::Left) {
-        let (camera, camera_transform) = q_camera.single();
-        let clicked_loc = mouse_to_world(camera, camera_transform, mouse.0);
-        pointer.pressed_at = clicked_loc;
+        pointer.pressed_at = mouse_world_pos.0;
     }
 
     // update `held_at` when the mouse remains pressed
     if button.pressed(MouseButton::Left) {
         // update the 'held' point
-        let (camera, camera_transform) = q_camera.single();
-        let held_loc = mouse_to_world(camera, camera_transform, mouse.0);
-        pointer.held_at = held_loc;
+        pointer.held_at = mouse_world_pos.0;
     } else {
         // turn off the laser if the mouse is released
         pointer.pressed_at = None;
@@ -225,7 +222,7 @@ fn laser_pointer_system(
             commands.spawn(SpriteBundle {
                 sprite: Sprite {
                     anchor: Anchor::CenterLeft,
-                    color: Color::YELLOW,
+                    color: Color::ORANGE,
                     custom_size: Some(Vec2::new(1.0, 0.25)),
                     ..default()
                 },
@@ -255,15 +252,7 @@ fn laser_pointer_system(
         },
         (Some(prev_pos), Some(new_pos)) => {
             // laser remained on; see if it moved
-            if !new_pos.abs_diff_eq(prev_pos, 0.001) {
-                println!("laser moved!");
-                // for (_, mut transform) in &mut laser_end {
-                //     *transform = Transform::from_translation((new_pos, 0.).into())
-                // }
-                true
-            } else {
-                false
-            }
+            !new_pos.abs_diff_eq(prev_pos, 0.001)
         },
     };
 
@@ -286,8 +275,6 @@ fn laser_pointer_system(
                 }
 
                 pointer.hit_at = toi.map(|t| origin_pos + (direction * t));
-
-                println!("Laser Impact at {:?}", toi);
             }
         }
     }
