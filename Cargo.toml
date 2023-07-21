@@ -10,6 +10,7 @@ edition = "2021"
 # > NOTE: Remember to revert this before releasing your game! Otherwise you will need to include libbevy_dylib
 # > alongside your game if you want it to run. If you remove the "dynamic" feature, your game executable can run standalone.
 bevy = { version = "0.11.0", features = ["dynamic_linking"] }
+bevy_rapier2d = { version = "0.22.0", features = ["simd-stable"] }
 noise_lib = { version = "0.7.0", package = "noise" }
 parry2d = "0.13.5"
 rand = "0.8.5"

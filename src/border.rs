@@ -1,7 +1,10 @@
-use bevy::prelude::Component;
+use bevy::prelude::{Component, Vec2};
+use bevy_rapier2d::rapier::prelude::Aabb;
+use parry2d::math::{Point, Vector};
 
 use crate::cardinal::Cardinal;
 use crate::grid::{Grid, TileAddress};
+use crate::zone::GridDimensions;
 
 #[derive(Component, Debug, Copy, Clone)]
 pub struct Border {
@@ -37,6 +40,25 @@ impl Border {
 
     pub fn is_vertical(&self) -> bool {
         self.is_vertical
+    }
+
+    pub fn get_aabb(&self, dims: &GridDimensions, radius: f32) -> Aabb {
+        let tile_size = dims.tile_size;
+        let Vec2 { x, y } = dims.world_pos_of(&self.pos);
+        let small_dim = tile_size * radius;
+        let large_dim = tile_size * (0.5 + radius);
+        let half_tile = tile_size * 0.5;
+        if self.is_vertical() {
+            Aabb::from_half_extents(
+                Point::new(x, y + half_tile),
+                Vector::new(small_dim, large_dim).into(),
+            )
+        } else {
+            Aabb::from_half_extents(
+                Point::new(x + half_tile, y),
+                Vector::new(large_dim, small_dim),
+            )
+        }
     }
 }
 

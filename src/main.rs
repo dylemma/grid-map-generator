@@ -5,6 +5,7 @@ use bevy::{
     render::camera::ScalingMode,
 };
 use bevy::sprite::Anchor;
+use bevy_rapier2d::prelude::*;
 use parry2d::math::{Point, Vector};
 
 use crate::border::{Border, collect_borders};
@@ -13,7 +14,6 @@ use crate::grid::*;
 use crate::input::{GameInputPlugin, PlayerCursor};
 use crate::laser::{LaserBundle, LasersPlugin};
 use crate::noise::Noise;
-use crate::raycast_world::{Obstacle, ObstacleRef, Obstacles};
 use crate::wiggle::{TileWiggle, TileWigglePlugin};
 use crate::zone::*;
 
@@ -25,7 +25,6 @@ mod input;
 mod laser;
 mod noise;
 mod procgen;
-mod raycast_world;
 mod wiggle;
 mod zone;
 
@@ -41,6 +40,10 @@ fn main() {
 
         .add_plugins(LasersPlugin)
         .add_systems(Startup, setup_player_laser)
+
+        .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
+        .add_systems(Update, spawn_balls)
+        .add_systems(PostUpdate, reap_balls)
         .run();
 }
 
@@ -68,12 +71,14 @@ fn setup_camera(
     }).insert(MainCamera);
 }
 
+#[derive(Component)]
+struct BorderWall;
+
 fn sync_zone_tile_sprites(
     dimensions: Res<GridDimensions>,
     zone: Res<Grid<TileState>>,
-    mut obstacles: ResMut<Obstacles>,
     mut sprites: Query<(&mut Sprite, &TileAddress)>,
-    border_entities: Query<Entity, (With<Border>, With<ObstacleRef>)>,
+    border_entities: Query<Entity, (With<Border>, With<BorderWall>)>,
     mut commands: Commands,
 ) {
     if zone.is_added() {
@@ -107,38 +112,33 @@ fn sync_zone_tile_sprites(
         for entity in &border_entities {
             commands.entity(entity).despawn();
         }
-        // TODO: once I add more kinds of obstacles that aren't border walls,
-        //       this struct is going to need an efficient way to remove individual items.
-        obstacles.remove_all();
 
         collect_borders(
             &zone,
             &|tile: &TileState| *tile == TileState::Floor,
             &mut |border: Border| {
-                let obs = Obstacle::border_wall(border, &dimensions);
-                let aabb = obs.aabb();
-                let obs_ref = obstacles.add(obs);
-                let corner = aabb.mins;
+                let aabb = border.get_aabb(&dimensions, 0.1);
+                let center = aabb.center(); //mins;
                 let size: [f32; 2] = aabb.extents().into();
 
                 commands
                     .spawn(SpriteBundle {
                         sprite: Sprite {
-                            anchor: Anchor::BottomLeft,
+                            anchor: Anchor::Center,
                             color: Color::CYAN,
                             custom_size: Some(size.into()),
                             ..default()
                         },
-                        transform: Transform::from_translation((corner.x, corner.y, 0.).into()),
+                        transform: Transform::from_translation((center.x, center.y, 0.).into()),
                         ..default()
                     })
                     .insert(border)
-                    .insert(obs_ref)
+                    .insert(BorderWall)
+                    .insert(RigidBody::Fixed)
+                    .insert(Collider::cuboid(size[0] * 0.5, size[1] * 0.5))
                 ;
             }
         );
-        obstacles.refit();
-        obstacles.rebalance();
     }
 }
 
@@ -157,4 +157,48 @@ fn setup_player_laser(
     commands
         .spawn(LaserBundle::default())
         .insert(PlayerControlled);
+}
+
+#[derive(Component)]
+struct Ball;
+
+fn spawn_balls(
+    mut commands: Commands,
+    buttons: Res<Input<MouseButton>>,
+    cursor: Res<PlayerCursor>,
+) {
+    if buttons.pressed(MouseButton::Right) {
+        commands
+            .spawn(Ball)
+            .insert(RigidBody::Dynamic)
+            .insert(Collider::ball(0.25))
+            .insert(Restitution::coefficient(0.7))
+            .insert(Ccd::enabled())
+            .insert(SpriteBundle {
+                sprite: Sprite {
+                    custom_size: Some(Vec2::new(0.5, 0.5)),
+                    anchor: Anchor::Center,
+                    color: Color::CYAN,
+                    ..default()
+                },
+                transform: Transform {
+                    translation: (cursor.world_pos, 0.).into(),
+                    ..default()
+                },
+                ..default()
+            });
+    }
+}
+
+fn reap_balls(
+    mut commands: Commands,
+    balls: Query<(Entity, &GlobalTransform), With<Ball>>,
+) {
+    for (entity, ball) in &balls {
+        let pos = ball.translation().truncate();
+        if pos.y < -100. {
+            commands.entity(entity).despawn();
+            println!("despawn ball {:?}", entity);
+        }
+    }
 }

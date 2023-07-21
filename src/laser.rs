@@ -2,9 +2,10 @@ use bevy::input::Input;
 use bevy::math::Vec2;
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
+use bevy_rapier2d::prelude::{QueryFilter, RapierContext};
+
 use crate::input::PlayerCursor;
 use crate::PlayerControlled;
-use crate::raycast_world::Obstacles;
 
 pub struct LasersPlugin;
 
@@ -55,36 +56,36 @@ fn player_laser_input(
     button: Res<Input<MouseButton>>,
 ) {
     for mut laser in lasers.iter_mut() {
-        if button.just_pressed(MouseButton::Left) {
-            laser.origin = Some(cursor.world_pos);
-        }
-        if let Some(origin) = laser.origin {
-            if button.pressed(MouseButton::Left) {
+        if button.pressed(MouseButton::Left) {
+            if let Some(origin) = laser.origin {
                 if let Some(direction) = (cursor.world_pos - origin).try_normalize() {
                     laser.direction = Some(direction);
                 }
             } else {
-                laser.origin = None;
-                laser.direction = None;
-                laser.impact_distance = None;
+                laser.origin = Some(cursor.world_pos);
             }
+        } else {
+            laser.origin = None;
+            laser.direction = None;
+            laser.impact_distance = None;
         }
     }
 }
 
 fn solve_laser_impacts(
     mut lasers: Query<&mut Laser>,
-    obstacles: Res<Obstacles>,
+    rapier_context: Res<RapierContext>,
 ) {
     for mut laser in lasers.iter_mut() {
-        laser.impact_distance = find_laser_impact(&laser, &obstacles);
+        laser.impact_distance = find_laser_impact(&laser, &rapier_context);
     }
 }
 
-fn find_laser_impact(laser: &Laser, obstacles: &Obstacles) -> Option<f32> {
+fn find_laser_impact(laser: &Laser, rapier_context: &RapierContext) -> Option<f32> {
     let origin = laser.origin?;
     let direction = laser.direction?;
-    obstacles.find_ray_impact(origin, direction, laser.max_length)
+    let (_, toi) = rapier_context.cast_ray(origin, direction, laser.max_length, true, QueryFilter::default())?;
+    Some(toi)
 }
 
 fn sync_laser_sprites(
@@ -171,7 +172,7 @@ fn sync_laser_sprites(
                             &mut transform,
                             origin,
                             direction,
-                            laser.impact_distance.unwrap_or(laser.max_length)
+                            laser.impact_distance.unwrap_or(laser.max_length),
                         );
                     })
                 }).is_some();
