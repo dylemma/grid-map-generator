@@ -51,18 +51,17 @@ pub struct LaserSprites {
 }
 
 fn player_laser_input(
-    mut lasers: Query<&mut Laser, With<PlayerControlled>>,
+    mut lasers: Query<(&mut Laser, &GlobalTransform), With<PlayerControlled>>,
     cursor: Res<PlayerCursor>,
     button: Res<Input<MouseButton>>,
 ) {
-    for mut laser in lasers.iter_mut() {
+    for (mut laser, transform) in lasers.iter_mut() {
         if button.pressed(MouseButton::Left) {
+            laser.origin = Some(transform.translation().truncate());
             if let Some(origin) = laser.origin {
                 if let Some(direction) = (cursor.world_pos - origin).try_normalize() {
                     laser.direction = Some(direction);
                 }
-            } else {
-                laser.origin = Some(cursor.world_pos);
             }
         } else {
             laser.origin = None;
@@ -73,18 +72,27 @@ fn player_laser_input(
 }
 
 fn solve_laser_impacts(
-    mut lasers: Query<&mut Laser>,
+    mut lasers: Query<(Entity, &mut Laser)>,
     rapier_context: Res<RapierContext>,
 ) {
-    for mut laser in lasers.iter_mut() {
-        laser.impact_distance = find_laser_impact(&laser, &rapier_context);
+    for (entity, mut laser) in lasers.iter_mut() {
+        laser.impact_distance = find_laser_impact(&laser, entity, &rapier_context);
     }
 }
 
-fn find_laser_impact(laser: &Laser, rapier_context: &RapierContext) -> Option<f32> {
+fn find_laser_impact(laser: &Laser, self_entity: Entity, rapier_context: &RapierContext) -> Option<f32> {
     let origin = laser.origin?;
     let direction = laser.direction?;
-    let (_, toi) = rapier_context.cast_ray(origin, direction, laser.max_length, true, QueryFilter::default())?;
+    let (_, toi) = rapier_context.cast_ray(
+        origin,
+        direction,
+        laser.max_length,
+        true,
+        QueryFilter {
+            exclude_collider: Some(self_entity),
+            ..default()
+        },
+    )?;
     Some(toi)
 }
 

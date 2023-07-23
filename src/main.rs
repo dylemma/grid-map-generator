@@ -12,8 +12,9 @@ use crate::border::{Border, collect_borders};
 use crate::fill::flood_fill;
 use crate::grid::*;
 use crate::input::{GameInputPlugin, PlayerCursor};
-use crate::laser::{LaserBundle, LasersPlugin};
+use crate::laser::{Laser, LaserBundle, LasersPlugin};
 use crate::noise::Noise;
+use crate::pathing::PathingPlugin;
 use crate::wiggle::{TileWiggle, TileWigglePlugin};
 use crate::zone::*;
 
@@ -24,6 +25,7 @@ mod grid;
 mod input;
 mod laser;
 mod noise;
+mod pathing;
 mod procgen;
 mod wiggle;
 mod zone;
@@ -39,16 +41,43 @@ fn main() {
         .add_systems(Update, sync_zone_tile_sprites)
 
         .add_plugins(LasersPlugin)
-        .add_systems(Startup, setup_player_laser)
 
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
         .add_systems(Update, spawn_balls)
         .add_systems(PostUpdate, reap_balls)
+
+        .add_plugins(PathingPlugin)
+        .add_systems(Startup, init_player)
+        .add_systems(Update, handle_player_collisions)
         .run();
 }
 
 #[derive(Component)]
 struct PlayerControlled;
+
+fn init_player(
+    mut commands: Commands,
+) {
+    commands
+        .spawn(PlayerControlled)
+        .insert(LaserBundle::default())
+        .insert(Collider::cuboid(1., 1.))
+        .insert(SpriteBundle {
+            sprite: Sprite {
+                color: Color::BLACK,
+                custom_size: Some(Vec2::splat(2.)),
+                anchor: Anchor::Center,
+                ..default()
+            },
+            ..default()
+        })
+        .insert(KinematicCharacterController {
+            apply_impulse_to_dynamic_bodies: true,
+            custom_mass: Some(10.0),
+            ..default()
+        })
+    ;
+}
 
 #[derive(Component)]
 struct MainCamera;
@@ -66,7 +95,7 @@ fn setup_camera(
             },
             ..default()
         },
-        transform: Transform::from_translation((dimensions.world_center(), 999.9).into()).with_scale(Vec3::new(1., -1., 1.)),
+        transform: Transform::from_translation((dimensions.world_center(), 999.9).into()).with_scale(Vec3::new(1., 1., 1.)),
         ..default()
     }).insert(MainCamera);
 }
@@ -151,14 +180,6 @@ fn reset_tiles_on_keypress(
     }
 }
 
-fn setup_player_laser(
-    mut commands: Commands,
-) {
-    commands
-        .spawn(LaserBundle::default())
-        .insert(PlayerControlled);
-}
-
 #[derive(Component)]
 struct Ball;
 
@@ -173,6 +194,7 @@ fn spawn_balls(
             .insert(RigidBody::Dynamic)
             .insert(Collider::ball(0.25))
             .insert(Restitution::coefficient(0.7))
+            .insert(ColliderMassProperties::Density(0.1))
             .insert(Ccd::enabled())
             .insert(SpriteBundle {
                 sprite: Sprite {
@@ -199,6 +221,17 @@ fn reap_balls(
         if pos.y < -100. {
             commands.entity(entity).despawn();
             println!("despawn ball {:?}", entity);
+        }
+    }
+}
+
+fn handle_player_collisions(
+    mut character_controller_outputs: Query<&mut KinematicCharacterControllerOutput, With<PlayerControlled>>,
+) {
+    for mut output in character_controller_outputs.iter_mut() {
+        let vel = output.desired_translation;
+        for collision in output.collisions.drain(..) {
+            println!("Collision w/ character vs {:?} with velocity {:?} at toi {}", &collision.entity, vel, collision.toi.toi);
         }
     }
 }
