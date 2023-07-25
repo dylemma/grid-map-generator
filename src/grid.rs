@@ -1,17 +1,29 @@
 use std::borrow::Borrow;
-use std::ops::{Index, IndexMut};
+use std::ops::{Add, Index, IndexMut};
 
 use bevy::prelude::{Component, Resource};
 
 use crate::fill::Tiles;
 use crate::GridDimensions;
 
-#[derive(Component, Copy, Clone, Debug)]
+#[derive(Component, Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct TileAddress(pub u32, pub u32);
 
 impl TileAddress {
     pub fn as_tuple(&self) -> (u32, u32) {
         (self.0, self.1)
+    }
+}
+
+impl Add<(i32, i32)> for TileAddress {
+    type Output = Option<TileAddress>;
+
+    fn add(self, (dx, dy): (i32, i32)) -> Self::Output {
+        self.0.checked_add_signed(dx).and_then(|x| {
+            self.1.checked_add_signed(dy).map(|y| {
+                TileAddress(x, y)
+            })
+        })
     }
 }
 

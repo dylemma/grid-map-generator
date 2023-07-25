@@ -67,6 +67,13 @@ impl TileState {
             TileState::Water => Color::rgb(0.0, 0.1, 0.4),
         }
     }
+
+    pub fn is_floor(&self) -> bool {
+        match self {
+            TileState::Floor => true,
+            _ => false,
+        }
+    }
 }
 
 impl From<Reachability> for TileState {
