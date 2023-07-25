@@ -1,7 +1,6 @@
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
 
-use crate::{GridDimensions, MainCamera, TileAddress};
+use crate::{GridDimensions, MainCamera};
 
 pub struct GameInputPlugin;
 

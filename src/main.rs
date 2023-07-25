@@ -6,13 +6,12 @@ use bevy::{
 };
 use bevy::sprite::Anchor;
 use bevy_rapier2d::prelude::*;
-use parry2d::math::{Point, Vector};
 
 use crate::border::{Border, collect_borders};
 use crate::fill::flood_fill;
 use crate::grid::*;
 use crate::input::{GameInputPlugin, PlayerCursor};
-use crate::laser::{Laser, LaserBundle, LasersPlugin};
+use crate::laser::{LaserBundle, LasersPlugin};
 use crate::noise::Noise;
 use crate::pathing::PathingPlugin;
 use crate::wiggle::{TileWiggle, TileWigglePlugin};

@@ -1,10 +1,8 @@
 use bevy::app::App;
 use bevy::input::Input;
-use bevy::prelude::{Color, Commands, MouseButton, Plugin, Query, Res, Sprite, Startup, Transform, TransformBundle, Update, Vec2, With};
-use bevy::sprite::{Anchor, SpriteBundle};
-use bevy::utils::default;
+use bevy::prelude::{MouseButton, Plugin, Query, Res, Transform, Update, Vec2, With};
 use bevy_rapier2d::control::KinematicCharacterController;
-use bevy_rapier2d::prelude::{Collider, RigidBody, Vect};
+
 use crate::grid::TileAddress;
 use crate::input::PlayerCursor;
 use crate::PlayerControlled;
